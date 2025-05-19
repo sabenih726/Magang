@@ -1,190 +1,117 @@
 import streamlit as st
 import pandas as pd
-import sys
-import os
+import sys, os
 from datetime import datetime
+import plotly.express as px
 
-# Add parent directory to path to import utils
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import utils
+# Simulasi login (gunakan session_state di implementasi sesungguhnya)
+st.set_page_config(page_title="Admin Dashboard", layout="wide")
+st.title("Admin Dashboard - GA Ticket Management System")
 
-# Page configuration
-st.set_page_config(
-    page_title="Admin Dashboard - GA Ticket Management System",
-    page_icon="🎫",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Load data (gunakan utils.load_tickets() di produksi)
+@st.cache_data
+def load_data():
+    return pd.read_csv("sample_tickets.csv", parse_dates=["submit_date"])
 
-# Check if user is logged in and is admin
-if 'user' not in st.session_state or st.session_state.user is None:
-    st.switch_page("app.py")
-elif st.session_state.user['role'] != 'admin':
-    st.error("You don't have permission to access this page. Admin access required.")
-    if st.button("Return to Home"):
-        st.switch_page("app.py")
-    st.stop()
+df = load_data()
 
-# Load tickets
-if 'tickets_df' not in st.session_state:
-    st.session_state.tickets_df = utils.load_tickets()
-
-# Title and description
-st.title("Admin Dashboard")
-st.markdown(f"Manage tickets and system configuration | Logged in as: {st.session_state.user['full_name']} ({st.session_state.user['role'].capitalize()})")
-
-# Sidebar user info
-st.sidebar.header("User Information")
-st.sidebar.write(f"**Name:** {st.session_state.user['full_name']}")
-st.sidebar.write(f"**Role:** {st.session_state.user['role'].capitalize()}")
-st.sidebar.write(f"**Department:** {st.session_state.user['department']}")
-
-if st.sidebar.button("Logout"):
-    st.session_state.user = None
-    st.switch_page("app.py")
-
+# Sidebar - Admin Info Dummy
+st.sidebar.header("Admin Info")
+st.sidebar.write("Name: Admin User")
+st.sidebar.write("Role: Admin")
+st.sidebar.write("Dept: IT")
 st.sidebar.markdown("---")
 
-# Sidebar filters
-st.sidebar.header("Filters")
+# Sidebar - Filters
+st.sidebar.subheader("Filters")
+category_filter = st.sidebar.selectbox("Filter by Category", ["All"] + sorted(df["category"].unique()))
+status_filter = st.sidebar.selectbox("Filter by Status", ["All"] + sorted(df["status"].unique()))
+start_date = st.sidebar.date_input("Start Date", df["submit_date"].min().date())
+end_date = st.sidebar.date_input("End Date", df["submit_date"].max().date())
 
-# Get unique categories and statuses for filters
-categories = ['All'] + sorted(st.session_state.tickets_df['category'].unique().tolist())
-statuses = ['All'] + sorted(st.session_state.tickets_df['status'].unique().tolist())
+# Apply Filters
+filtered_df = df.copy()
+if category_filter != "All":
+    filtered_df = filtered_df[filtered_df["category"] == category_filter]
+if status_filter != "All":
+    filtered_df = filtered_df[filtered_df["status"] == status_filter]
+filtered_df = filtered_df[
+    (filtered_df["submit_date"] >= pd.to_datetime(start_date)) & 
+    (filtered_df["submit_date"] <= pd.to_datetime(end_date))
+]
 
-# Category filter
-selected_category = st.sidebar.selectbox("Category", categories)
+# Search
+search = st.sidebar.text_input("Search")
+if search:
+    filtered_df = filtered_df[filtered_df["title"].str.contains(search, case=False, na=False)]
 
-# Status filter
-selected_status = st.sidebar.selectbox("Status", statuses)
+# Export
+st.sidebar.subheader("Export")
+export_format = st.sidebar.radio("Format", ["CSV", "Excel"])
+if st.sidebar.button("Export Data"):
+    if export_format == "CSV":
+        st.download_button("Download CSV", filtered_df.to_csv(index=False), file_name="tickets_export.csv", mime="text/csv")
+    else:
+        from io import BytesIO
+        towrite = BytesIO()
+        filtered_df.to_excel(towrite, index=False, sheet_name='Tickets')
+        towrite.seek(0)
+        st.download_button("Download Excel", towrite, file_name="tickets_export.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# Search by title or description
-search_term = st.sidebar.text_input("Search tickets")
-
-# Filter the dataframe based on selections
-filtered_df = utils.filter_tickets(
-    st.session_state.tickets_df, 
-    selected_category, 
-    selected_status, 
-    search_term
-)
-
-# Display ticket statistics
+# Stats
 col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total", len(df))
+col2.metric("Pending", len(df[df["status"] == "Pending"]))
+col3.metric("In Progress", len(df[df["status"] == "In Progress"]))
+col4.metric("Completed", len(df[df["status"] == "Completed"]))
 
-with col1:
-    st.metric("Total Tickets", len(st.session_state.tickets_df))
-    
-with col2:
-    pending_count = len(st.session_state.tickets_df[st.session_state.tickets_df['status'] == 'Pending'])
-    st.metric("Pending Tickets", pending_count)
-    
-with col3:
-    in_progress_count = len(st.session_state.tickets_df[st.session_state.tickets_df['status'] == 'In Progress'])
-    st.metric("In Progress", in_progress_count)
-    
-with col4:
-    completed_count = len(st.session_state.tickets_df[st.session_state.tickets_df['status'] == 'Completed'])
-    st.metric("Completed Tickets", completed_count)
+# Chart
+st.subheader("Ticket Trends")
+trend_data = df.copy()
+trend_data["submit_date"] = trend_data["submit_date"].dt.date
+chart_df = trend_data.groupby(["submit_date", "status"]).size().reset_index(name="count")
+fig = px.bar(chart_df, x="submit_date", y="count", color="status", title="Tickets Over Time")
+st.plotly_chart(fig, use_container_width=True)
 
-# Display tickets table
-if not filtered_df.empty:
-    # Prepare display dataframe
-    display_df = filtered_df.copy()
-    # Convert submit_date to a more readable format if it exists in the dataframe
-    if 'submit_date' in display_df.columns:
-        display_df['submit_date'] = pd.to_datetime(display_df['submit_date']).dt.strftime('%Y-%m-%d %H:%M')
-    
-    # Display the table
-    st.subheader("Tickets")
-    st.dataframe(
-        display_df[['ticket_id', 'title', 'category', 'status', 'priority', 'requester_name', 'department', 'submit_date']],
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # Select a ticket to view/edit
-    selected_ticket_id = st.selectbox("Select a ticket to view/edit details", 
-                                   filtered_df['ticket_id'].tolist(),
-                                   index=None)
-    
-    if selected_ticket_id:
-        selected_ticket = filtered_df[filtered_df['ticket_id'] == selected_ticket_id].iloc[0]
-        
-        # Display ticket details
-        with st.expander("Ticket Details", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"**Ticket ID:** {selected_ticket['ticket_id']}")
-                st.write(f"**Title:** {selected_ticket['title']}")
-                st.write(f"**Category:** {selected_ticket['category']}")
-                st.write(f"**Status:** {selected_ticket['status']}")
-            with col2:
-                st.write(f"**Priority:** {selected_ticket['priority']}")
-                submit_date = pd.to_datetime(selected_ticket['submit_date']).strftime('%Y-%m-%d %H:%M')
-                st.write(f"**Submitted:** {submit_date}")
-                st.write(f"**Requester:** {selected_ticket['requester_name']}")
-                st.write(f"**Department:** {selected_ticket['department']}")
-            
-            st.write(f"**Description:**")
-            st.write(selected_ticket['description'])
-            
-            # Show update history if available
-            st.subheader("Update History")
-            if pd.isna(selected_ticket['update_notes']) or selected_ticket['update_notes'] == "":
-                st.info("No updates have been recorded for this ticket.")
-            else:
-                for note in selected_ticket['update_notes'].split('\n'):
-                    st.write(note)
-            
-            # Add status update section
-            st.subheader("Update Ticket Status")
-            
-            # Get admin users for assignment
-            admin_users = utils.get_admin_users()
-            admin_options = [""] + admin_users['username'].tolist() if not admin_users.empty else [""]
-            
-            with st.form("update_ticket_form"):
-                new_status = st.selectbox(
-                    "New Status", 
-                    options=["Pending", "In Progress", "Completed", "Rejected"],
-                    index=["Pending", "In Progress", "Completed", "Rejected"].index(selected_ticket['status']) if selected_ticket['status'] in ["Pending", "In Progress", "Completed", "Rejected"] else 0
-                )
-                
-                assigned_to = st.selectbox(
-                    "Assign To", 
-                    options=admin_options,
-                    index=0 if 'assigned_to' not in selected_ticket or not selected_ticket['assigned_to'] else admin_options.index(selected_ticket['assigned_to']) if selected_ticket['assigned_to'] in admin_options else 0
-                )
-                
-                update_notes = st.text_area("Update Notes", "")
-                
-                update_button = st.form_submit_button("Update Ticket")
-            
-            if update_button:
-                if not update_notes:
-                    st.error("Please provide update notes before updating the ticket.")
-                else:
-                    success = utils.update_ticket_status(selected_ticket_id, new_status, update_notes, assigned_to)
-                    if success:
-                        st.success("Ticket updated successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to update ticket. Please try again.")
-else:
-    st.info("No tickets found matching the selected filters.")
+# Pagination
+items_per_page = st.selectbox("Items per page", [10, 25, 50], index=0)
+page = st.number_input("Page", min_value=1, max_value=(len(filtered_df) - 1)//items_per_page + 1, value=1)
+start = (page - 1) * items_per_page
+end = start + items_per_page
+paginated_df = filtered_df.iloc[start:end]
 
-# Sidebar actions
+# Display Table
+st.subheader("Filtered Tickets")
+selected = st.multiselect("Select tickets to delete or bulk update:", paginated_df["ticket_id"])
+st.dataframe(paginated_df, use_container_width=True)
+
+# Bulk update
+st.subheader("Bulk Update")
+bulk_status = st.selectbox("New status", ["Pending", "In Progress", "Completed", "Rejected"])
+bulk_notes = st.text_area("Update notes (applied to all selected)")
+if st.button("Apply Bulk Update"):
+    if selected and bulk_notes:
+        df.loc[df["ticket_id"].isin(selected), "status"] = bulk_status
+        df.loc[df["ticket_id"].isin(selected), "update_notes"] = bulk_notes
+        st.success("Tickets updated.")
+    else:
+        st.error("Select tickets and provide update notes.")
+
+# Delete selected
+if st.button("Delete Selected"):
+    if selected:
+        df = df[~df["ticket_id"].isin(selected)]
+        st.success("Selected tickets deleted.")
+    else:
+        st.warning("No tickets selected.")
+
+# Dummy login history
 st.sidebar.markdown("---")
-st.sidebar.header("Admin Actions")
+st.sidebar.subheader("Login History")
+st.sidebar.write("- 2025-05-18 10:00:01 - Login OK")
+st.sidebar.write("- 2025-05-17 18:45:22 - Logout")
+st.sidebar.write("- 2025-05-17 08:12:45 - Login OK")
 
-if st.sidebar.button("User Management"):
-    st.switch_page("pages/user_management.py")
-
-if st.sidebar.button("View Reports"):
-    st.switch_page("pages/reports.py")
-
-# Refresh button
-if st.sidebar.button("Refresh Data"):
-    st.session_state.tickets_df = utils.load_tickets()
+# Refresh data
+if st.sidebar.button("Refresh"):
     st.rerun()
