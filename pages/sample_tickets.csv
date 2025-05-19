@@ -1,0 +1,5 @@
+ticket_id,title,description,category,priority,status,requester_name,requester_email,department,submit_date,updated_date,update_notes
+1,Email not working,User cannot send email,IT Support,High,Pending,John Doe,john@example.com,IT,2025-05-15,2025-05-16,
+2,Computer slow,PC performance degraded,IT Support,Medium,In Progress,Jane Smith,jane@example.com,Finance,2025-05-14,2025-05-18,Investigating
+3,Software installation,Install Photoshop,Software,Low,Completed,Bob Lee,bob@example.com,Marketing,2025-05-10,2025-05-12,Installed successfully
+4,Access denied,Cannot access shared folder,Network,High,Rejected,Alice Wong,alice@example.com,HR,2025-05-17,2025-05-17,Request denied due to policy
