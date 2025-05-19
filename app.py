@@ -1,4 +1,5 @@
 import streamlit as st
+import login
 import pandas as pd
 from datetime import datetime
 import utils
@@ -10,6 +11,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+if "user" not in st.session_state or st.session_state.user is None:
+    login.login_screen()
+    st.stop()
 
 # Load tickets if not in session
 if 'tickets_df' not in st.session_state:
@@ -90,5 +95,12 @@ with tab2:
 
 # Admin Login button
 st.sidebar.title("🔐 Admin Access")
+
+if "user" in st.session_state and st.session_state.user is not None:
+    st.sidebar.write(f"👤 Logged in sebagai: {st.session_state.user['full_name']} ({st.session_state.user['role']})")
+    if st.sidebar.button("Logout"):
+        login.logout()
+        st.experimental_rerun()
+
 if st.sidebar.button("Login as Admin"):
     st.switch_page("pages/admin_dashboard.py")
